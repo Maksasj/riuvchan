@@ -496,7 +496,90 @@ static esp_err_t ssd1306_write_text(const char *str, uint8_t page, uint8_t col) 
     return ESP_OK;
 }
 
+static esp_err_t ssd1306_draw_buffer(const uint8_t *buffer) {
+    esp_err_t ret = ESP_OK;
+
+    // 1. Set Column Address Range (0 - 127)
+    // This tells the SSD1306 to treat the next data as columns 0 through 127
+    ret = ssd1306_send_command(0x21); 
+    if (ret != ESP_OK) return ret;
+    ret = ssd1306_send_command(0);    // Start Column
+    if (ret != ESP_OK) return ret;
+    ret = ssd1306_send_command(127);  // End Column
+    if (ret != ESP_OK) return ret;
+
+    // 2. Set Page Address Range (0 - 7)
+    // This tells the SSD1306 to treat the next data as pages 0 through 7
+    ret = ssd1306_send_command(0x22); 
+    if (ret != ESP_OK) return ret;
+    ret = ssd1306_send_command(0);    // Start Page
+    if (ret != ESP_OK) return ret;
+    ret = ssd1306_send_command(7);    // End Page
+    if (ret != ESP_OK) return ret;
+
+    // 3. Send the buffer in chunks
+    // We send 1024 bytes. We could try sending it all at once, but I2C hardware 
+    // buffers usually prefer smaller chunks. We will send 128 bytes (1 page) at a time.
+    for (int i = 0; i < 1024; i += 128) {
+        ret = ssd1306_send_data(&buffer[i], 128);
+        if (ret != ESP_OK) return ret;
+    }
+
+    return ESP_OK;
+}
+
+#include "face.h"
+
 void draw(void *ignore) {
+    ESP_LOGI(TAG, "Starting OLED SSD1306 Demo");
+
+    // Initialize the SSD1306 Display
+    if (ssd1306_init() != ESP_OK) {
+        ESP_LOGE(TAG, "SSD1306 initialization failed! Check wiring/address (0x3C).");
+        vTaskDelete(NULL);
+        return;
+    }
+    
+    /*
+    // Allocate memory for the screen buffer (128 * 64 / 8 = 1024 bytes)
+    uint8_t *screen_buffer = malloc(1024);
+    if (screen_buffer == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate memory for screen buffer");
+        vTaskDelete(NULL);
+        return;
+    }
+    int frame_count = 0;
+*/
+
+    while(1) {
+        /*
+        // --- DEMO 1: Diagonal Stripes ---
+        // Fill buffer with a pattern
+        for (int i = 0; i < 1024; i++) {
+            // Create a moving diagonal pattern based on frame_count
+            screen_buffer[i] = 0xFF; 
+        }
+
+        // Draw the buffer
+
+        frame_count += 4; // Shift pattern speed
+*/
+        ssd1306_draw_buffer(face_img);
+
+        vTaskDelay(pdMS_TO_TICKS(50)); // Fast refresh (20fps)
+
+        /* // --- ALTERNATIVE: Clear and Text ---
+        // If you want to mix buffer and text, you usually modify the buffer
+        // using a font library, then send the whole buffer.
+        // But since your text function writes directly to I2C, you can:
+        memset(screen_buffer, 0x00, 1024); // Clear buffer
+        ssd1306_draw_buffer(screen_buffer); // Update screen to black
+        ssd1306_write_text("BUFFER MODE", 3, 20); // Write directly
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        */
+    }
+
+    /*
     ESP_LOGI(TAG, "Starting OLED SSD1306 Demo");
 
     // 2. Initialize the SSD1306 Display
@@ -518,6 +601,7 @@ void draw(void *ignore) {
         // Loop indefinitely to keep the display running
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
+    */
 }
 
 #define TOUCH_SENSOR_GPIO 0
