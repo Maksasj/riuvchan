@@ -100,13 +100,6 @@ void app_main() {
     xTaskCreatePinnedToCore(ssd1306_display_render_task, TAG, configMINIMAL_STACK_SIZE * 8, NULL, 5, NULL, APP_CPU_NUM);
 }
 
-typedef enum {
-    IDLE_STRAIGHT_EYES_STATE,
-    IDLE_EYES_RIGHT_STATE,
-    IDLE_EYES_LEFT_STATE,
-    HAPPY_STATE,
-} robot_state_id_t;
-
 void init_state_machine_states(state_machine_t* state_machine);
 
 void init_robot_state(robot_state_t* robot) {
@@ -128,7 +121,7 @@ void init_robot_state(robot_state_t* robot) {
 }
 
 void init_state_machine_states(state_machine_t* state_machine) {
-    add_state(&robot.state_machine, create_state(IDLE_STRAIGHT_EYES_STATE, "IDLE_STRAIGHT_EYES_STATE", create_face_state((face_state_t) {
+    add_state(&robot.state_machine, create_state("IDLE_STRAIGHT_EYES_STATE", create_face_state((face_state_t) {
         .left_eye_x_position = 10,
         .left_eye_y_position = 5,
         .left_eye_width = 25,
@@ -153,7 +146,7 @@ void init_state_machine_states(state_machine_t* state_machine) {
         .decoration_right_y_position = 55
     })));
 
-    add_state(&robot.state_machine, create_state(IDLE_EYES_LEFT_STATE, "IDLE_EYES_RIGHT_STATE", create_face_state((face_state_t) {
+    add_state(&robot.state_machine, create_state("IDLE_EYES_RIGHT_STATE", create_face_state((face_state_t) {
         .left_eye_x_position = 10,
         .left_eye_y_position = 5,
         .left_eye_width = 25,
@@ -178,7 +171,7 @@ void init_state_machine_states(state_machine_t* state_machine) {
         .decoration_right_y_position = 49
     })));
 
-    add_state(&robot.state_machine, create_state(IDLE_EYES_LEFT_STATE, "IDLE_EYES_LEFT_STATE", create_face_state((face_state_t) {
+    add_state(&robot.state_machine, create_state("IDLE_EYES_LEFT_STATE", create_face_state((face_state_t) {
         .left_eye_x_position = SSD1306_WIDTH - 10 - 25 - 5 - 25,
         .left_eye_y_position = 5,
         .left_eye_width = 25,
@@ -201,6 +194,31 @@ void init_state_machine_states(state_machine_t* state_machine) {
 
         .decoration_right_x_position = SSD1306_WIDTH - 10 - 8,
         .decoration_right_y_position = 47
+    })));
+
+    add_state(&robot.state_machine, create_state("IDLE_SLEEP_STATE", create_face_state((face_state_t) {
+        .left_eye_x_position = 10,
+        .left_eye_y_position = 40,
+        .left_eye_width = 30,
+        .left_eye_height = 5,
+
+        .right_eye_x_position = SSD1306_WIDTH - 10 - 25,
+        .right_eye_y_position = 40,
+        .right_eye_width = 30,
+        .right_eye_height = 5,
+
+        .mouth_angle_start = 80,
+        .mouth_angle_end = 100,
+        .mouth_angle_x_position = 64,
+        .mouth_angle_y_position = 32,
+        .mouth_width = 6,
+
+        .decoration_width = 15,
+        .decoration_left_x_position = 10,
+        .decoration_left_y_position = 55,
+
+        .decoration_right_x_position = SSD1306_WIDTH - 10 - 5,
+        .decoration_right_y_position = 55
     })));
 
     robot.state_machine.current_state_index = 0;
@@ -290,8 +308,11 @@ void render_mouth(uint8_t *screen_buffer, face_state_t* face_state) {
 }
 
 void render_decorations(uint8_t *screen_buffer, face_state_t* face_state) {
-    uint8_t decoration_small = face_state->decoration_width / 3;
-    uint8_t decoration_big = decoration_small * 2;
+    // uint8_t decoration_small = face_state->decoration_width / 3;
+    // uint8_t decoration_big = decoration_small * 2;
+
+    uint8_t decoration_small = 5;
+    uint8_t decoration_big = 10;
 
     // Left
     ssd1306_fill_rect(
@@ -305,7 +326,7 @@ void render_decorations(uint8_t *screen_buffer, face_state_t* face_state) {
 
     ssd1306_fill_rect(
         screen_buffer, 
-        face_state->decoration_left_x_position + decoration_big + decoration_small + 1, 
+        face_state->decoration_left_x_position + decoration_big + 2 + 1, 
         face_state->decoration_left_y_position, 
         decoration_small, 
         2, 
@@ -324,10 +345,10 @@ void render_decorations(uint8_t *screen_buffer, face_state_t* face_state) {
 
     ssd1306_fill_rect(
         screen_buffer, 
-        face_state->decoration_right_x_position - decoration_big - decoration_small - 1, 
+        face_state->decoration_right_x_position - decoration_big + 2, 
         face_state->decoration_right_y_position, 
         decoration_small, 
-        2, 
+        2,
         1
     );
 }
@@ -444,7 +465,15 @@ void ttp223_sensor_read_task(void *ignore) {
         int touch_level = ttp223_touched(&sensor);
 
         if (touch_level == 1) {
-            robot.emotion_state.happiness += 1.0f;
+            robot.state_machine.current_state_index = 0;
+            robot.state_machine.previous_state_index = 0;
+            vTaskDelay(pdMS_TO_TICKS(20));
+            robot.state_machine.current_state_index = 3;
+            robot.state_machine.previous_state_index = 0;
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            robot.state_machine.current_state_index = 3;
+            robot.state_machine.previous_state_index = 3;
+            vTaskDelay(pdMS_TO_TICKS(5000));
 
             // ESP_LOGI(TAG, "SENSOR STATUS: >>> TOUCH DETECTED! <<<");
         } else {

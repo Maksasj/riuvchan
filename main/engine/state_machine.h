@@ -8,8 +8,6 @@
 #define STATE_MACHINE_MAX_STATES 16
 
 typedef struct state_t {
-    int id;
-
     char* state_name;
     
     void* user_data;
@@ -18,17 +16,15 @@ typedef struct state_t {
 state_t* create_state_empty(int id, const char* name) {
     state_t *state = malloc(sizeof(state_t));
 
-    state->id = id;
     state->state_name = strdup(name);
     state->user_data = NULL;
 
     return state;
 }
 
-state_t* create_state(int id, const char* name, void* user_data) {
+state_t* create_state(const char* name, void* user_data) {
     state_t *state = malloc(sizeof(state_t));
 
-    state->id = id;
     state->state_name = strdup(name);
     state->user_data = user_data;
 
