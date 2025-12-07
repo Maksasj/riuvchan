@@ -16,6 +16,7 @@
 #include "esp_sleep.h"
 #include "esp_timer.h"
 #include "shared.h"
+#include "math.h"
 
 // --- SSD1306 Commands and Constants ---
 #define SSD1306_WIDTH          128
@@ -120,6 +121,7 @@ static esp_err_t ssd1306_init(void) {
     } else {
         ESP_LOGE(TAG, "SSD1306 initialization failed: %s", esp_err_to_name(ret));
     }
+
     return ret;
 }
 
@@ -216,4 +218,329 @@ static esp_err_t ssd1306_draw_buffer(const uint8_t *buffer) {
     }
 
     return ESP_OK;
+}
+
+// Color: 1 = White (On), 0 = Black (Off)
+static inline void ssd1306_draw_pixel(uint8_t *buffer, int x, int y, int color) {
+    if (x < 0 || x >= SSD1306_WIDTH || y < 0 || y >= SSD1306_HEIGHT) {
+        return; // Out of bounds
+    }
+
+    if (color) {
+        buffer[x + (y / 8) * SSD1306_WIDTH] |= (1 << (y % 8));
+    } else {
+        buffer[x + (y / 8) * SSD1306_WIDTH] &= ~(1 << (y % 8));
+    }
+}   
+
+static inline void ssd1306_draw_line(uint8_t *buffer, int x0, int y0, int x1, int y1, int color) {
+    int dx = abs(x1 - x0);
+    int dy = abs(y1 - y0);
+    int sx = (x0 < x1) ? 1 : -1;
+    int sy = (y0 < y1) ? 1 : -1;
+    int err = dx - dy;
+
+    while (1) {
+        ssd1306_draw_pixel(buffer, x0, y0, color);
+        if (x0 == x1 && y0 == y1) break;
+        int e2 = 2 * err;
+        if (e2 > -dy) {
+            err -= dy;
+            x0 += sx;
+        }
+        if (e2 < dx) {
+            err += dx;
+            y0 += sy;
+        }
+    }
+}
+
+// Lined (Hollow) Circle
+static inline void ssd1306_draw_circle(uint8_t *buffer, int x0, int y0, int r, int color) {
+    int f = 1 - r;
+    int ddF_x = 1;
+    int ddF_y = -2 * r;
+    int x = 0;
+    int y = r;
+
+    ssd1306_draw_pixel(buffer, x0, y0 + r, color);
+    ssd1306_draw_pixel(buffer, x0, y0 - r, color);
+    ssd1306_draw_pixel(buffer, x0 + r, y0, color);
+    ssd1306_draw_pixel(buffer, x0 - r, y0, color);
+
+    while (x < y) {
+        if (f >= 0) {
+            y--;
+            ddF_y += 2;
+            f += ddF_y;
+        }
+        x++;
+        ddF_x += 2;
+        f += ddF_x;
+
+        ssd1306_draw_pixel(buffer, x0 + x, y0 + y, color);
+        ssd1306_draw_pixel(buffer, x0 - x, y0 + y, color);
+        ssd1306_draw_pixel(buffer, x0 + x, y0 - y, color);
+        ssd1306_draw_pixel(buffer, x0 - x, y0 - y, color);
+        ssd1306_draw_pixel(buffer, x0 + y, y0 + x, color);
+        ssd1306_draw_pixel(buffer, x0 - y, y0 + x, color);
+        ssd1306_draw_pixel(buffer, x0 + y, y0 - x, color);
+        ssd1306_draw_pixel(buffer, x0 - y, y0 - x, color);
+    }
+}
+
+// Filled Circle
+static inline void ssd1306_fill_circle(uint8_t *buffer, int x0, int y0, int r, int color) {
+    int f = 1 - r;
+    int ddF_x = 1;
+    int ddF_y = -2 * r;
+    int x = 0;
+    int y = r;
+
+    ssd1306_draw_line(buffer, x0 - r, y0, x0 + r, y0, color);
+
+    while (x < y) {
+        if (f >= 0) {
+            y--;
+            ddF_y += 2;
+            f += ddF_y;
+        }
+        x++;
+        ddF_x += 2;
+        f += ddF_x;
+
+        ssd1306_draw_line(buffer, x0 - x, y0 + y, x0 + x, y0 + y, color);
+        ssd1306_draw_line(buffer, x0 - x, y0 - y, x0 + x, y0 - y, color);
+        ssd1306_draw_line(buffer, x0 - y, y0 + x, x0 + y, y0 + x, color);
+        ssd1306_draw_line(buffer, x0 - y, y0 - x, x0 + y, y0 - x, color);
+    }
+}
+
+// Lined Rectangle
+static inline void ssd1306_draw_rect(uint8_t *buffer, int x, int y, int w, int h, int color) {
+    ssd1306_draw_line(buffer, x, y, x + w - 1, y, color);         // Top
+    ssd1306_draw_line(buffer, x, y + h - 1, x + w - 1, y + h - 1, color); // Bottom
+    ssd1306_draw_line(buffer, x, y, x, y + h - 1, color);         // Left
+    ssd1306_draw_line(buffer, x + w - 1, y, x + w - 1, y + h - 1, color); // Right
+}
+
+// Filled Rectangle
+static inline void ssd1306_fill_rect(uint8_t *buffer, int x, int y, int w, int h, int color) {
+    for (int i = 0; i < h; i++) {
+        ssd1306_draw_line(buffer, x, y + i, x + w - 1, y + i, color);
+    }
+}
+
+// Helper for Rounded Rectangles (draws circle quadrants)
+static inline void draw_circle_helper(uint8_t *buffer, int x0, int y0, int r, uint8_t cornername, int color) {
+    int f = 1 - r;
+    int ddF_x = 1;
+    int ddF_y = -2 * r;
+    int x = 0;
+    int y = r;
+
+    while (x < y) {
+        if (f >= 0) {
+            y--;
+            ddF_y += 2;
+            f += ddF_y;
+        }
+        x++;
+        ddF_x += 2;
+        f += ddF_x;
+        if (cornername & 0x4) { // Top Right
+            ssd1306_draw_pixel(buffer, x0 + x, y0 - y, color);
+            ssd1306_draw_pixel(buffer, x0 + y, y0 - x, color);
+        }
+        if (cornername & 0x2) { // Top Left
+            ssd1306_draw_pixel(buffer, x0 - x, y0 - y, color);
+            ssd1306_draw_pixel(buffer, x0 - y, y0 - x, color);
+        }
+        if (cornername & 0x8) { // Bottom Right
+            ssd1306_draw_pixel(buffer, x0 + x, y0 + y, color);
+            ssd1306_draw_pixel(buffer, x0 + y, y0 + x, color);
+        }
+        if (cornername & 0x1) { // Bottom Left
+            ssd1306_draw_pixel(buffer, x0 - x, y0 + y, color);
+            ssd1306_draw_pixel(buffer, x0 - y, y0 + x, color);
+        }
+    }
+}
+
+// Helper for Filled Rounded Rectangles
+static inline void fill_circle_helper(uint8_t *buffer, int x0, int y0, int r, uint8_t cornername, int delta, int color) {
+    int f = 1 - r;
+    int ddF_x = 1;
+    int ddF_y = -2 * r;
+    int x = 0;
+    int y = r;
+
+    while (x < y) {
+        if (f >= 0) {
+            y--;
+            ddF_y += 2;
+            f += ddF_y;
+        }
+        x++;
+        ddF_x += 2;
+        f += ddF_x;
+
+        if (cornername & 0x1) { // Right Half
+            ssd1306_draw_line(buffer, x0 + x, y0 - y, x0 + x, y0 + y + delta, color);
+            ssd1306_draw_line(buffer, x0 + y, y0 - x, x0 + y, y0 + x + delta, color);
+        }
+        if (cornername & 0x2) { // Left Half
+            ssd1306_draw_line(buffer, x0 - x, y0 - y, x0 - x, y0 + y + delta, color);
+            ssd1306_draw_line(buffer, x0 - y, y0 - x, x0 - y, y0 + x + delta, color);
+        }
+    }
+}
+
+// Rounded Rectangle (Lined)
+static inline void ssd1306_draw_round_rect(uint8_t *buffer, int x, int y, int w, int h, int r, int color) {
+    // Top
+    ssd1306_draw_line(buffer, x + r, y, x + w - r - 1, y, color);
+    // Bottom
+    ssd1306_draw_line(buffer, x + r, y + h - 1, x + w - r - 1, y + h - 1, color);
+    // Left
+    ssd1306_draw_line(buffer, x, y + r, x, y + h - r - 1, color);
+    // Right
+    ssd1306_draw_line(buffer, x + w - 1, y + r, x + w - 1, y + h - r - 1, color);
+
+    // Four corners
+    draw_circle_helper(buffer, x + r, y + r, r, 2, color);
+    draw_circle_helper(buffer, x + w - r - 1, y + r, r, 4, color);
+    draw_circle_helper(buffer, x + w - r - 1, y + h - r - 1, r, 8, color);
+    draw_circle_helper(buffer, x + r, y + h - r - 1, r, 1, color);
+}
+
+/**
+ * @brief Draws an Arc with thickness and round caps.
+ * @param buffer Screen buffer
+ * @param cx Center X
+ * @param cy Center Y
+ * @param r Radius
+ * @param start_angle Start angle in degrees (0 is right, 90 is bottom, etc.)
+ * @param end_angle End angle in degrees
+ * @param thickness Thickness of the line
+ * @param color 1 for White, 0 for Black
+ */
+static inline void ssd1306_draw_arc(uint8_t *buffer, int cx, int cy, int r, int start_angle, int end_angle, int thickness, int color) {
+    // Convert degrees to radians
+    float start_rad = start_angle * M_PI / 180.0f;
+    float end_rad = end_angle * M_PI / 180.0f;
+    
+    // Calculate step size based on radius to ensure no gaps (over-sampling)
+    // 1 pixel step = 1 / Radius radians
+    float step = 1.0f / r; 
+
+    // Handle wrap-around or direction
+    if (start_rad > end_rad) {
+        // Swap if start > end, or handle logic for crossing 0 if needed
+        // For simplicity here, we assume drawing clockwise or simple sweep
+    }
+
+    // Brush radius
+    int brush_r = thickness / 2;
+    if (brush_r < 1) brush_r = 1;
+
+    for (float theta = start_rad; theta <= end_rad; theta += step) {
+        // Polar to Cartesian
+        int px = cx + (int)(cos(theta) * r);
+        int py = cy + (int)(sin(theta) * r);
+
+        // Draw the brush (filled circle) at this point
+        // This handles both the thickness and the rounded ends
+        ssd1306_fill_circle(buffer, px, py, brush_r, color);
+    }
+}
+
+static inline void ssd1306_fill_round_rect(uint8_t *buffer, int x, int y, int w, int h, int r, int color) {
+    // Basic check for valid radius
+    if (r <= 0 || r > w / 2 || r > h / 2) {
+        // Fallback to a normal filled rectangle if the radius is invalid
+        ssd1306_fill_rect(buffer, x, y, w, h, color);
+        return;
+    }
+
+    // 1. Draw the Central Vertical Bar
+    // This fills the entire height (h) but reduces the width by 2*r.
+    // It covers the central flat portion of the sides.
+    ssd1306_fill_rect(buffer, x + r, y, w - 2 * r, h, color);
+
+    // 2. Draw the Central Horizontal Bar
+    // This fills the entire width (w) but reduces the height by 2*r.
+    // This overlaps with step 1 and ensures the flat top and bottom are filled.
+    ssd1306_fill_rect(buffer, x, y + r, w, h - 2 * r, color);
+
+    // 3. Draw the Four Filled Circles (The Corners)
+    // The centers of the four quarter-circles are located at the corners 
+    // of the inner W-2r x H-2r rectangle. These circles perfectly fill 
+    // the four corner regions missed by the two central bars.
+    
+    // Top Left Corner
+    ssd1306_fill_circle(buffer, x + r, y + r, r, color);
+    
+    // Top Right Corner
+    ssd1306_fill_circle(buffer, x + w - r - 1, y + r, r, color);
+    
+    // Bottom Left Corner
+    ssd1306_fill_circle(buffer, x + r, y + h - r - 1, r, color);
+    
+    // Bottom Right Corner
+    ssd1306_fill_circle(buffer, x + w - r - 1, y + h - r - 1, r, color);
+}
+
+#include <stdlib.h> // For abs()
+
+/**
+ * @brief Draws a solid heart shape using circles, rectangles, and lines.
+ * * @param buffer Screen buffer (1024 bytes)
+ * @param cx Center X coordinate of the heart's bounding box
+ * @param cy Center Y coordinate of the heart's bounding box
+ * @param size Controls the overall scale (height) of the heart
+ * @param color 1 for White, 0 for Black
+ */
+void ssd1306_draw_heart(uint8_t *buffer, int cx, int cy, int size, int color) {
+    if (size < 6) size = 6; // Set a reasonable minimum size
+
+    // 1. Define Geometry
+    int r = size / 3;            // Radius of the two top circles
+    int y_center = cy - r / 2;   // Vertical center offset for the circles
+    int y_tip = cy + size - r;   // Bottom point of the heart
+
+    // Centers of the two circles
+    int x1 = cx - r;
+    int x2 = cx + r;
+
+    // Safety checks: ensure the heart fits on screen (optional, but good practice)
+    if (y_center - r < 0 || y_tip >= SSD1306_HEIGHT) {
+        // ESP_LOGW(TAG, "Heart too large or out of bounds!");
+        return;
+    }
+
+    // 2. Draw the two filled circles (top lobes)
+    ssd1306_fill_circle(buffer, x1, y_center, r, color);
+    ssd1306_fill_circle(buffer, x2, y_center, r, color);
+
+    // 3. Fill the small vertical gap between the two circles' bottom halves
+    // This creates a continuous, solid top section.
+    // Rect starts at (cx - r) and has width 2*r and height r (down to y_center + r)
+    ssd1306_fill_rect(buffer, cx - r, y_center, 2 * r, r + 1, color);
+
+    // 4. Draw and fill the bottom triangle using horizontal lines
+    int y_start_fill = y_center + r;
+    
+    // Iterate from the bottom of the circles down to the tip
+    for (int y = y_start_fill; y < y_tip; y++) {
+        // Calculate the current horizontal line half-width based on its vertical position (y)
+        // We use float arithmetic for smooth scaling, converting the integer difference to a fraction.
+        float fraction_remaining = (float)(y_tip - y) / (y_tip - y_start_fill);
+        
+        // The line width starts at 'r' and shrinks down to 0 at the tip.
+        int half_width = (int)(r * fraction_remaining);
+        
+        // Draw the horizontal line segment for the current row
+        ssd1306_draw_line(buffer, cx - half_width, y, cx + half_width, y, color);
+    }
 }
