@@ -15,6 +15,10 @@
 #include "utils.h"
 
 #include "easings.h"
+#include "face_state.h"
+
+#define HAUL_IMPLEMENTATION
+#include "safe_vector.h"
 
 #include "components/bmp280.h"
 #include "components/mpu6050.h"
@@ -31,39 +35,6 @@ void bmp280_sensor_read_task(void *ignore);
 void ttp223_sensor_read_task(void *ignore);
 void mpu6050_sensor_read_task(void *ignore);
 
-typedef struct face_state_t {
-    uint8_t left_eye_x_position;
-    uint8_t left_eye_y_position;
-    uint8_t left_eye_width;
-    uint8_t left_eye_height; 
-
-    uint8_t right_eye_x_position;
-    uint8_t right_eye_y_position;
-    uint8_t right_eye_width;
-    uint8_t right_eye_height; 
-
-    uint8_t mouth_angle_start;
-    uint8_t mouth_angle_end;
-    uint8_t mouth_angle_x_position;
-    uint8_t mouth_angle_y_position;
-    uint8_t mouth_width;
-
-    uint8_t decoration_width;
-    uint8_t decoration_left_x_position;
-    uint8_t decoration_left_y_position;
-
-    uint8_t decoration_right_x_position;
-    uint8_t decoration_right_y_position;
-} face_state_t;
-
-face_state_t* create_face_state(face_state_t state) {
-    face_state_t* new_state = malloc(sizeof(face_state_t));
-    *new_state = state;
-    return new_state;
-}
-
-face_state_t calculate_face_state(face_state_t* current_face_state, face_state_t* previous_face_state, float transition);
-
 typedef struct {
     i2c_config_t i2c;
 
@@ -72,6 +43,8 @@ typedef struct {
     bool bmp280_read_loop_enabled;
     bool mpu605_read_loop_enabled;
     bool ssd1306_render_loop_enabled;
+
+    safe_vector_t events;
 
     face_state_t current_face_state;
     state_machine_t state_machine;
@@ -100,6 +73,10 @@ void app_main() {
     xTaskCreatePinnedToCore(ssd1306_display_render_task, TAG, configMINIMAL_STACK_SIZE * 8, NULL, 5, NULL, APP_CPU_NUM);
 }
 
+void fire_event(event_t* event) {
+    vector_push(&robot.events, event);
+}
+
 void init_state_machine_states(state_machine_t* state_machine);
 
 void init_robot_state(robot_state_t* robot) {
@@ -118,108 +95,14 @@ void init_robot_state(robot_state_t* robot) {
 
     // Initialize I2C Master Configuration
     init_i2c_master(&robot->i2c);
+
+    create_vector(&robot->events, 128);
 }
 
+#include "states.h"
+
 void init_state_machine_states(state_machine_t* state_machine) {
-    add_state(&robot.state_machine, create_state("IDLE_STRAIGHT_EYES_STATE", create_face_state((face_state_t) {
-        .left_eye_x_position = 10,
-        .left_eye_y_position = 5,
-        .left_eye_width = 25,
-        .left_eye_height = 40,
-
-        .right_eye_x_position = SSD1306_WIDTH - 10 - 25,
-        .right_eye_y_position = 5,
-        .right_eye_width = 25,
-        .right_eye_height = 40,
-
-        .mouth_angle_start = 60,
-        .mouth_angle_end = 120,
-        .mouth_angle_x_position = 64,
-        .mouth_angle_y_position = 32,
-        .mouth_width = 6,
-
-        .decoration_width = 15,
-        .decoration_left_x_position = 10,
-        .decoration_left_y_position = 55,
-
-        .decoration_right_x_position = SSD1306_WIDTH - 10 - 10,
-        .decoration_right_y_position = 55
-    })));
-
-    add_state(&robot.state_machine, create_state("IDLE_EYES_RIGHT_STATE", create_face_state((face_state_t) {
-        .left_eye_x_position = 10,
-        .left_eye_y_position = 5,
-        .left_eye_width = 25,
-        .left_eye_height = 40, 
-
-        .right_eye_x_position = 10 + 25 + 5,
-        .right_eye_y_position = 5,
-        .right_eye_width = 25,
-        .right_eye_height = 40, 
-
-        .mouth_angle_start = 60,
-        .mouth_angle_end = 120,
-        .mouth_angle_x_position = 10 + 25 + 2,
-        .mouth_angle_y_position = 32,
-        .mouth_width = 5,
-
-        .decoration_width = 9,
-        .decoration_left_x_position = 10,
-        .decoration_left_y_position = 49,
-
-        .decoration_right_x_position = SSD1306_WIDTH - 10 - 10,
-        .decoration_right_y_position = 49
-    })));
-
-    add_state(&robot.state_machine, create_state("IDLE_EYES_LEFT_STATE", create_face_state((face_state_t) {
-        .left_eye_x_position = SSD1306_WIDTH - 10 - 25 - 5 - 25,
-        .left_eye_y_position = 5,
-        .left_eye_width = 25,
-        .left_eye_height = 40, 
-
-        .right_eye_x_position = SSD1306_WIDTH - 10 - 25,
-        .right_eye_y_position = 5,
-        .right_eye_width = 25,
-        .right_eye_height = 40, 
-
-        .mouth_angle_start = 60,
-        .mouth_angle_end = 120,
-        .mouth_angle_x_position = SSD1306_WIDTH - 10 - 25 - 2,
-        .mouth_angle_y_position = 32,
-        .mouth_width = 2,
-
-        .decoration_width = 9,
-        .decoration_left_x_position = SSD1306_WIDTH - 10 - 8 - 45,
-        .decoration_left_y_position = 47,
-
-        .decoration_right_x_position = SSD1306_WIDTH - 10 - 8,
-        .decoration_right_y_position = 47
-    })));
-
-    add_state(&robot.state_machine, create_state("IDLE_SLEEP_STATE", create_face_state((face_state_t) {
-        .left_eye_x_position = 10,
-        .left_eye_y_position = 40,
-        .left_eye_width = 30,
-        .left_eye_height = 5,
-
-        .right_eye_x_position = SSD1306_WIDTH - 10 - 25,
-        .right_eye_y_position = 40,
-        .right_eye_width = 30,
-        .right_eye_height = 5,
-
-        .mouth_angle_start = 80,
-        .mouth_angle_end = 100,
-        .mouth_angle_x_position = 64,
-        .mouth_angle_y_position = 32,
-        .mouth_width = 6,
-
-        .decoration_width = 15,
-        .decoration_left_x_position = 10,
-        .decoration_left_y_position = 55,
-
-        .decoration_right_x_position = SSD1306_WIDTH - 10 - 5,
-        .decoration_right_y_position = 55
-    })));
+    add_all_states(state_machine);
 
     robot.state_machine.current_state_index = 0;
     robot.state_machine.previous_state_index = 0;
@@ -228,6 +111,9 @@ void init_state_machine_states(state_machine_t* state_machine) {
 void dispose_robot_state(robot_state_t* robot) {
     free_state_machine_states(&robot->state_machine);
     free_state_machine(&robot->state_machine);
+
+    free_vector_content(&robot->events);
+    free_vector(&robot->events);
 }
 
 void init_i2c_master(i2c_config_t* conf) {
@@ -353,39 +239,6 @@ void render_decorations(uint8_t *screen_buffer, face_state_t* face_state) {
     );
 }
 
-face_state_t calculate_face_state(face_state_t* current_face_state, face_state_t* previous_face_state, float transition) {
-    if(previous_face_state == NULL)
-        return *current_face_state;
-        
-    face_state_t face_state;
-
-    face_state.left_eye_x_position = ease_in_out_cubic(previous_face_state->left_eye_x_position, current_face_state->left_eye_x_position, transition);
-    face_state.left_eye_y_position = ease_in_out_cubic(previous_face_state->left_eye_y_position, current_face_state->left_eye_y_position, transition);
-    face_state.left_eye_width = ease_in_out_cubic(previous_face_state->left_eye_width, current_face_state->left_eye_width, transition);
-    face_state.left_eye_height = ease_in_out_cubic(previous_face_state->left_eye_height, current_face_state->left_eye_height, transition); 
-
-    face_state.right_eye_x_position = ease_in_out_cubic(previous_face_state->right_eye_x_position, current_face_state->right_eye_x_position, transition);
-    face_state.right_eye_y_position = ease_in_out_cubic(previous_face_state->right_eye_y_position, current_face_state->right_eye_y_position, transition);
-    face_state.right_eye_width = ease_in_out_cubic(previous_face_state->right_eye_width, current_face_state->right_eye_width, transition);
-    face_state.right_eye_height = ease_in_out_cubic(previous_face_state->right_eye_height, current_face_state->right_eye_height, transition);
-
-    face_state.mouth_angle_start = ease_in_out_cubic(previous_face_state->mouth_angle_start, current_face_state->mouth_angle_start, transition);
-    face_state.mouth_angle_end = ease_in_out_cubic(previous_face_state->mouth_angle_end, current_face_state->mouth_angle_end, transition);
-    face_state.mouth_angle_x_position = ease_in_out_cubic(previous_face_state->mouth_angle_x_position, current_face_state->mouth_angle_x_position, transition);
-    face_state.mouth_angle_y_position = ease_in_out_cubic(previous_face_state->mouth_angle_y_position, current_face_state->mouth_angle_y_position, transition);
-    face_state.mouth_width = ease_in_out_cubic(previous_face_state->mouth_width, current_face_state->mouth_width, transition);
-
-
-    face_state.decoration_width = ease_in_out_cubic(previous_face_state->decoration_width, current_face_state->decoration_width, transition);
-    face_state.decoration_left_x_position = ease_in_out_cubic(previous_face_state->decoration_left_x_position, current_face_state->decoration_left_x_position, transition);
-    face_state.decoration_left_y_position = ease_in_out_cubic(previous_face_state->decoration_left_y_position, current_face_state->decoration_left_y_position, transition);
-
-    face_state.decoration_right_x_position = ease_in_out_cubic(previous_face_state->decoration_right_x_position, current_face_state->decoration_right_x_position, transition);
-    face_state.decoration_right_y_position = ease_in_out_cubic(previous_face_state->decoration_right_y_position, current_face_state->decoration_right_y_position, transition);
-
-    return face_state;
-}
-
 void render_face(uint8_t *screen_buffer) {
     face_state_t face_state = robot.current_face_state;
 
@@ -457,27 +310,94 @@ void bmp280_sensor_read_task(void *ignore) {
     vTaskDelete(NULL);
 }
 
+// --- Config ---
+#define DOUBLE_TAP_DELAY_US    300000   // 300ms: Window to wait for a second tap
+#define HOLD_THRESHOLD_US      800000   // 0.8s: Time to trigger Hold
+#define SUPER_HOLD_THRESHOLD_US 3000000 // 3.0s: Time to trigger Super Hold
+
+typedef struct {
+    int64_t press_start_time;
+    int64_t release_time;
+    int tap_count;
+    bool hold_triggered;         // True if we already fired a Hold event during this press
+    bool super_hold_triggered;   // True if we already fired a Super Hold
+    bool last_level;
+} button_context_t;
+
 void ttp223_sensor_read_task(void *ignore) {
     ttp223_t sensor;
     ttp223_init(&sensor, 0);
 
+    button_context_t btn = {0};
+    btn.last_level = 0;
+
+    ESP_LOGI("TOUCH", "Task Started (No Dead Zones)");
+
     while (robot.ttp223_read_loop_enabled) {
-        int touch_level = ttp223_touched(&sensor);
+        bool current_level = ttp223_touched(&sensor);
+        int64_t now = esp_timer_get_time();
+        
+        bool rising_edge  = (current_level && !btn.last_level);
+        bool falling_edge = (!current_level && btn.last_level);
+        btn.last_level    = current_level;
 
-        if (touch_level == 1) {
-            robot.state_machine.current_state_index = 0;
-            robot.state_machine.previous_state_index = 0;
-            vTaskDelay(pdMS_TO_TICKS(20));
-            robot.state_machine.current_state_index = 3;
-            robot.state_machine.previous_state_index = 0;
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            robot.state_machine.current_state_index = 3;
-            robot.state_machine.previous_state_index = 3;
-            vTaskDelay(pdMS_TO_TICKS(5000));
+        // --- 1. Pressed Down ---
+        if (rising_edge) {
+            btn.press_start_time = now;
+            btn.hold_triggered = false;
+            btn.super_hold_triggered = false;
+        }
 
-            // ESP_LOGI(TAG, "SENSOR STATUS: >>> TOUCH DETECTED! <<<");
-        } else {
-            // ESP_LOGI(TAG, "SENSOR STATUS: Not Touched (LOW)");
+        // --- 2. While Holding Down ---
+        if (current_level) {
+            int64_t duration = now - btn.press_start_time;
+
+            // Trigger Super Hold
+            if (duration > SUPER_HOLD_THRESHOLD_US && !btn.super_hold_triggered) {
+                ESP_LOGI("TOUCH", ">>> SUPER LONG PRESS <<<");
+                fire_event(create_touch_event(TOUCH_SUPER_LONG_TAP, -1));
+                btn.super_hold_triggered = true;
+                // Note: We don't need to reset tap_count here because 'hold_triggered' 
+                // is already true, so the release logic below won't count it.
+            }
+            // Trigger Normal Hold
+            else if (duration > HOLD_THRESHOLD_US && !btn.hold_triggered) {
+                fire_event(create_touch_event(TOUCH_LONG_TAP, -1));
+                ESP_LOGI("TOUCH", ">>> LONG PRESS (HOLD) <<<");
+                btn.hold_triggered = true;
+            }
+        }
+
+        // --- 3. Released ---
+        if (falling_edge) {
+            btn.release_time = now;
+
+            // KEY FIX: Only count as a tap if we NEVER triggered a hold.
+            // This eliminates the dead zone. If you release before 800ms, it is ALWAYS a tap.
+            if (!btn.hold_triggered) {
+                btn.tap_count++;
+            }
+        }
+
+        // --- 4. Resolve Taps (While Released) ---
+        if (!current_level && btn.tap_count > 0) {
+            int64_t time_since_release = now - btn.release_time;
+
+            if (time_since_release > DOUBLE_TAP_DELAY_US) {
+                if (btn.tap_count == 1) {
+                    fire_event(create_touch_event(TOUCH_TAP, -1));
+                    ESP_LOGI("TOUCH", ">>> SINGLE TAP <<<");
+                } 
+                else if (btn.tap_count == 2) {
+                    fire_event(create_touch_event(TOUCH_DOUBLE_TAP, -1));
+                    ESP_LOGI("TOUCH", ">>> DOUBLE TAP <<<");
+                }
+                else {
+                    fire_event(create_touch_event(TOUCH_MULTI_TAP, btn.tap_count));
+                    ESP_LOGI("TOUCH", ">>> MULTI TAP (%d) <<<", btn.tap_count);
+                }
+                btn.tap_count = 0; // Reset
+            }
         }
 
         vTaskDelay(pdMS_TO_TICKS(20));
