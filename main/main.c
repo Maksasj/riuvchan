@@ -69,8 +69,8 @@ void app_main() {
     xTaskCreatePinnedToCore(state_machine_update_task, TAG, configMINIMAL_STACK_SIZE * 8, NULL, 5, NULL, APP_CPU_NUM);
 
     xTaskCreatePinnedToCore(ttp223_sensor_read_task, TAG, configMINIMAL_STACK_SIZE * 8, NULL, 5, NULL, APP_CPU_NUM);
-    // xTaskCreatePinnedToCore(bmp280_sensor_read_task, TAG, configMINIMAL_STACK_SIZE * 8, NULL, 5, NULL, APP_CPU_NUM);
-    // xTaskCreatePinnedToCore(mpu6050_sensor_read_task, TAG, configMINIMAL_STACK_SIZE * 8, NULL, 5, NULL, APP_CPU_NUM);
+    xTaskCreatePinnedToCore(bmp280_sensor_read_task, TAG, configMINIMAL_STACK_SIZE * 8, NULL, 5, NULL, APP_CPU_NUM);
+    xTaskCreatePinnedToCore(mpu6050_sensor_read_task, TAG, configMINIMAL_STACK_SIZE * 8, NULL, 5, NULL, APP_CPU_NUM);
     xTaskCreatePinnedToCore(ssd1306_display_render_task, TAG, configMINIMAL_STACK_SIZE * 8, NULL, 5, NULL, APP_CPU_NUM);
 }
 
@@ -140,13 +140,50 @@ void state_machine_update_task(void *ignore) {
     float transition_start_time = esp_timer_get_time() / 1000.0f; 
     float transition_duration = 1.0f;
     while (1) {
+        update_state_machine(&robot.state_machine, &robot.emotion_state);
+
         int event_count = vector_size(&robot.events);
         
         bool state_changed = false;
         if(event_count > 1) {
             event_t* event = vector_pop(&robot.events);
 
-            if(strcmp(get_current_state(&robot.state_machine)->state_name, "IDLE_STRAIGHT_EYES_STATE") == 0) {
+            if(event->type == TOUCH_TAP) {
+                robot.emotion_state.happiness += 1;
+                
+                if(robot.emotion_state.anger > 50)
+                    robot.emotion_state.anger -= 1;
+            }
+
+            if(event->type == TOUCH_MULTI_TAP && event->as.multi_tap >= 30) {
+                if(robot.emotion_state.anger > 50)
+                    robot.emotion_state.anger -= 30;
+            }
+
+            if(event->type == TOUCH_LONG_TAP) {
+                robot.emotion_state.happiness += 10;
+
+                if(robot.emotion_state.anger > 30)
+                    robot.emotion_state.anger -= 10;
+            }
+
+            if(event->type == TOUCH_SUPER_LONG_TAP) {
+                robot.emotion_state.happiness += 30;
+
+                if(robot.emotion_state.anger > 30)
+                    robot.emotion_state.anger -= 30;
+            }
+
+            if(event->type == THROWN_UP) {
+                if(robot.emotion_state.happiness > 30)
+                    robot.emotion_state.happiness -= 5;
+
+                robot.emotion_state.anger += 10;
+            }
+
+            ESP_LOGE(TAG, "MOOD: H %f, S %f, F %f, A %f, D %f, S %f", robot.emotion_state.happiness, robot.emotion_state.sadness, robot.emotion_state.fear, robot.emotion_state.anger, robot.emotion_state.disgust, robot.emotion_state.surprise);
+
+            if(!state_changed && strcmp(get_current_state(&robot.state_machine)->state_name, "IDLE_STRAIGHT_EYES_STATE") == 0) {
                 if(event->type == TOUCH_TAP) {
                     int current = robot.state_machine.current_state_index;
                     robot.state_machine.current_state_index = 2;
@@ -155,7 +192,9 @@ void state_machine_update_task(void *ignore) {
                     transition_duration = 0.15f;
                     state_changed = true;
                 }
-            } else if(strcmp(get_current_state(&robot.state_machine)->state_name, "IDLE_SLEEP_STATE") == 0) {
+            }
+            
+            if(!state_changed && strcmp(get_current_state(&robot.state_machine)->state_name, "IDLE_SLEEP_STATE") == 0) {
                 if(event->type == TOUCH_TAP) {
                     int current = robot.state_machine.current_state_index;
                     robot.state_machine.current_state_index = 0;
@@ -167,29 +206,51 @@ void state_machine_update_task(void *ignore) {
             }
         }
 
-        if(state_changed == false) {
-            if(strcmp(get_current_state(&robot.state_machine)->state_name, "IDLE_STRAIGHT_EYES_STATE") == 0) {
-                float current_time = esp_timer_get_time() / 1000.0f;
+        if(!state_changed && strcmp(get_current_state(&robot.state_machine)->state_name, "CONFUSED_CLOSED_EYES_STATE") == 0) {
+            if(robot.emotion_state.anger < 50.0f) {
+                int current = robot.state_machine.current_state_index;
+                robot.state_machine.current_state_index = 0;
+                robot.state_machine.previous_state_index = current;
+                transition_start_time = esp_timer_get_time() / 1000.0f;
+                transition_duration = 5.0f;
+                state_changed = true;
+            }
+        }
+        
+        if(!state_changed && strcmp(get_current_state(&robot.state_machine)->state_name, "IDLE_STRAIGHT_EYES_STATE") == 0) {
+            if(robot.emotion_state.anger > 75.0f) {
+                int current = robot.state_machine.current_state_index;
+                robot.state_machine.current_state_index = 3;
+                robot.state_machine.previous_state_index = current;
+                transition_start_time = esp_timer_get_time() / 1000.0f;
+                transition_duration = 2.0f;
+                state_changed = true;
+            }
+        }
+        
+        if(!state_changed && strcmp(get_current_state(&robot.state_machine)->state_name, "IDLE_STRAIGHT_EYES_STATE") == 0) {
+            float current_time = esp_timer_get_time() / 1000.0f;
 
-                if((current_time - transition_start_time) > 5000.0f) {
-                    int current = robot.state_machine.current_state_index;
-                    robot.state_machine.current_state_index = 1;
-                    robot.state_machine.previous_state_index = current;
-                    transition_start_time = esp_timer_get_time() / 1000.0f;
-                    transition_duration = 0.7f;
-                    state_changed = true;
-                }
-            } else if(strcmp(get_current_state(&robot.state_machine)->state_name, "IDLE_CLOSED_EYES_STATE") == 0) {
-                float current_time = esp_timer_get_time() / 1000.0f;
+            if((current_time - transition_start_time) > 5000.0f) {
+                int current = robot.state_machine.current_state_index;
+                robot.state_machine.current_state_index = 1;
+                robot.state_machine.previous_state_index = current;
+                transition_start_time = esp_timer_get_time() / 1000.0f;
+                transition_duration = 0.7f;
+                state_changed = true;
+            }
+        }
+        
+        if(!state_changed && strcmp(get_current_state(&robot.state_machine)->state_name, "IDLE_CLOSED_EYES_STATE") == 0) {
+            float current_time = esp_timer_get_time() / 1000.0f;
 
-                if((current_time - transition_start_time) > 100.0f) {
-                    int current = robot.state_machine.current_state_index;
-                    robot.state_machine.current_state_index = 0;
-                    robot.state_machine.previous_state_index = current;
-                    transition_start_time = esp_timer_get_time() / 1000.0f;
-                    transition_duration = 0.7f;
-                    state_changed = true;
-                }
+            if((current_time - transition_start_time) > 100.0f) {
+                int current = robot.state_machine.current_state_index;
+                robot.state_machine.current_state_index = 0;
+                robot.state_machine.previous_state_index = current;
+                transition_start_time = esp_timer_get_time() / 1000.0f;
+                transition_duration = 0.7f;
+                state_changed = true;
             }
         }
 
@@ -327,6 +388,7 @@ void ssd1306_display_render_task(void *ignore) {
 
         render_scene(screen_buffer);
         ssd1306_draw_buffer(screen_buffer);
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
 
@@ -359,12 +421,19 @@ void bmp280_sensor_read_task(void *ignore) {
 
             // Log the compensated data
             printf("Temp(C): % 6.2f | Pressure(hPa): % 7.2f\n", temp_c, pressure_hpa);
-            
+
+            if(temp_c < 20.0f)
+                robot.emotion_state.anger += 5.0f;
+
+            if(temp_c > 25.0f) {
+                robot.emotion_state.anger -= 10.0f;
+                robot.emotion_state.happiness += 5.0f;
+            }
         } else {
             ESP_LOGE(TAG, "BMP280 raw data read failed!");
         }
 
-        vTaskDelay(pdMS_TO_TICKS(1000)); // Read data once per second
+        vTaskDelay(pdMS_TO_TICKS(5000)); // Read data once per second
     }
     vTaskDelete(NULL);
 }
@@ -487,6 +556,18 @@ void mpu6050_sensor_read_task(void *ignore) {
             printf("Accel (g): X: % 7.3f | Y: % 7.3f | Z: % 7.3f   ", accel[0], accel[1], accel[2]);
             printf("Gyro (deg/s): X: % 7.3f | Y: % 7.3f | Z: % 7.3f\n", gyro[0], gyro[1], gyro[2]);
             
+            float ax = accel[0];
+            float ay = accel[1];
+            float az = accel[2]; 
+
+            float gx = gyro[0];
+            float gy = gyro[1];
+            float gz = gyro[2]; 
+
+            if(gx * gx + gy * gy + gz * gz >= 180.0f * 180.0f && ax * ax + ay * ay + az * az >= 2.0f * 2.0f) {
+                fire_event(create_throw_up_event());
+                ESP_LOGE(TAG, "Firing thrown event");
+            }
         } else {
             ESP_LOGE(TAG, "Failed to read MPU-6050 data!");
         }
