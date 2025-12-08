@@ -13,6 +13,7 @@
 #include "esp_timer.h"
 
 #include "utils.h"
+#include "states.h"
 
 #include "easings.h"
 #include "face_state.h"
@@ -99,8 +100,6 @@ void init_robot_state(robot_state_t* robot) {
     create_vector(&robot->events, 128);
 }
 
-#include "states.h"
-
 void init_state_machine_states(state_machine_t* state_machine) {
     add_all_states(state_machine);
 
@@ -131,12 +130,72 @@ void init_i2c_master(i2c_config_t* conf) {
     i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0);
 }
 
-void state_machine_update_task(void *ignore) {
-    while (1) {
-        float timer = 0.5f * sin(esp_timer_get_time() / 1000.0f) + 0.5f;
+#include "utils.h"
 
-        // update_state_machine(&robot.state_machine, &robot.emotion_state);
+void state_machine_update_task(void *ignore) {
+    state_t* start_state = get_current_state(&robot.state_machine);
+    robot.current_face_state = calculate_face_state(start_state, start_state, 0.0f);
+
+    // transition
+    float transition_start_time = esp_timer_get_time() / 1000.0f; 
+    float transition_duration = 1.0f;
+    while (1) {
+        int event_count = vector_size(&robot.events);
         
+        bool state_changed = false;
+        if(event_count > 1) {
+            event_t* event = vector_pop(&robot.events);
+
+            if(strcmp(get_current_state(&robot.state_machine)->state_name, "IDLE_STRAIGHT_EYES_STATE") == 0) {
+                if(event->type == TOUCH_TAP) {
+                    int current = robot.state_machine.current_state_index;
+                    robot.state_machine.current_state_index = 2;
+                    robot.state_machine.previous_state_index = current;
+                    transition_start_time = esp_timer_get_time() / 1000.0f;
+                    transition_duration = 0.15f;
+                    state_changed = true;
+                }
+            } else if(strcmp(get_current_state(&robot.state_machine)->state_name, "IDLE_SLEEP_STATE") == 0) {
+                if(event->type == TOUCH_TAP) {
+                    int current = robot.state_machine.current_state_index;
+                    robot.state_machine.current_state_index = 0;
+                    robot.state_machine.previous_state_index = current;
+                    transition_start_time = esp_timer_get_time() / 1000.0f;
+                    transition_duration = 0.15f;
+                    state_changed = true;
+                }
+            }
+        }
+
+        if(state_changed == false) {
+            if(strcmp(get_current_state(&robot.state_machine)->state_name, "IDLE_STRAIGHT_EYES_STATE") == 0) {
+                float current_time = esp_timer_get_time() / 1000.0f;
+
+                if((current_time - transition_start_time) > 5000.0f) {
+                    int current = robot.state_machine.current_state_index;
+                    robot.state_machine.current_state_index = 1;
+                    robot.state_machine.previous_state_index = current;
+                    transition_start_time = esp_timer_get_time() / 1000.0f;
+                    transition_duration = 0.7f;
+                    state_changed = true;
+                }
+            } else if(strcmp(get_current_state(&robot.state_machine)->state_name, "IDLE_CLOSED_EYES_STATE") == 0) {
+                float current_time = esp_timer_get_time() / 1000.0f;
+
+                if((current_time - transition_start_time) > 100.0f) {
+                    int current = robot.state_machine.current_state_index;
+                    robot.state_machine.current_state_index = 0;
+                    robot.state_machine.previous_state_index = current;
+                    transition_start_time = esp_timer_get_time() / 1000.0f;
+                    transition_duration = 0.7f;
+                    state_changed = true;
+                }
+            }
+        }
+
+        float current_time = esp_timer_get_time() / 1000.0f;
+        float duration_aspect = clamp(0.0f, 1.0f, ((current_time - transition_start_time) / 1000.0f) / transition_duration);
+
         // Animation
         state_t* current_state = get_current_state(&robot.state_machine);
         state_t* previous_state = get_previous_state(&robot.state_machine);
@@ -147,9 +206,9 @@ void state_machine_update_task(void *ignore) {
         if(previous_state != NULL)
             previous_face_state = (face_state_t*) previous_state->user_data;
 
-        robot.current_face_state = calculate_face_state(current_face_state, previous_face_state, timer);
+        robot.current_face_state = calculate_face_state(current_face_state, previous_face_state, duration_aspect);
 
-        vTaskDelay(pdMS_TO_TICKS(20));
+        vTaskDelay(pdMS_TO_TICKS(16));
     }
 }
 

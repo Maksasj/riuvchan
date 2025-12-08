@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSD1306 Robot Face Designer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #111827;
+            color: #e5e7eb;
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* OLED Simulation Glow */
+        #oled-container {
+            position: relative;
+            box-shadow: 0 0 20px rgba(6, 182, 212, 0.3);
+        }
+
+        #oled-canvas {
+            image-rendering: pixelated; /* Crucial for sharp edges when scaled up */
+            border: 2px solid #333;
+            cursor: crosshair;
+        }
+
+        /* Custom Scrollbar for controls */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1f2937; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #374151; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #4b5563; 
+        }
+
+        input[type=range] {
+            accent-color: #06b6d4; 
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col md:flex-row overflow-hidden">
+
+    <!-- Left Panel: Preview & Code -->
+    <div class="flex-1 flex flex-col p-6 gap-6 border-r border-gray-800 h-full overflow-y-auto">
+        
+        <!-- Header -->
+        <div>
+            <h1 class="text-2xl font-bold text-cyan-400 mb-1">Face Designer</h1>
+            <p class="text-sm text-gray-400">Configure parameters for SSD1306 `face_state_t`</p>
+        </div>
+
+        <!-- Canvas Preview -->
+        <div class="flex flex-col items-center justify-center bg-black p-8 rounded-xl border border-gray-800">
+            <div id="oled-container">
+                <canvas id="oled-canvas" width="128" height="64" class="w-[512px] h-[256px] bg-black"></canvas>
+            </div>
+            <div class="mt-4 flex gap-4 text-xs text-gray-500 font-mono">
+                <span>128x64 OLED Simulation (1-bit)</span>
+                <span class="text-cyan-600">• Click to Select • Drag to Move • Corners to Resize</span>
+            </div>
+        </div>
+
+        <!-- Code Output -->
+        <div class="flex-1 flex flex-col min-h-[200px]">
+            <div class="flex justify-between items-center mb-2">
+                <h3 class="text-sm font-semibold text-gray-300">Generated C Code</h3>
+                <button onclick="copyCode()" class="text-xs bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded transition">
+                    Copy to Clipboard
+                </button>
+            </div>
+            <textarea id="code-output" class="mono w-full flex-1 bg-gray-900 border border-gray-700 rounded-lg p-4 text-xs text-green-400 resize-none focus:outline-none focus:border-cyan-500" readonly></textarea>
+        </div>
+    </div>
+
+    <!-- Right Panel: Controls -->
+    <div class="w-full md:w-[450px] bg-gray-900 h-full flex flex-col border-l border-gray-800">
+        <div class="p-4 border-b border-gray-800 flex justify-between items-center bg-gray-800">
+            <h2 class="font-bold text-gray-200">Parameters</h2>
+            <button onclick="resetToDefault()" class="text-xs text-cyan-400 hover:text-cyan-300">Reset to Example</button>
+        </div>
+
+        <div class="overflow-y-auto flex-1 p-6 space-y-8" id="controls-container">
+            
+            <!-- Left Eye -->
+            <div class="space-y-3">
+                <h3 class="text-cyan-500 text-xs uppercase tracking-wider font-bold border-b border-gray-700 pb-1">Left Eye</h3>
+                <div class="grid grid-cols-2 gap-4">
+                    <label class="control-group">
+                        <span class="text-xs text-gray-400">X Position</span>
+                        <input type="number" id="left_eye_x_position" class="w-full bg-gray-800 rounded px-2 py-1 text-sm border border-gray-700" oninput="updateState()">
+                    </label>
+                    <label class="control-group">
+                        <span class="text-xs text-gray-400">Y Position</span>
+                        <input type="number" id="left_eye_y_position" class="w-full bg-gray-800 rounded px-2 py-1 text-sm border border-gray-700" oninput="updateState()">
+                    </label>
+                    <label class="control-group">
+                        <span class="text-xs text-gray-400">Width</span>
+                        <input type="range" min="0" max="128" id="left_eye_width_slider" class="w-full block h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer" oninput="syncInput('left_eye_width', this.value)">
+                        <input type="number" id="left_eye_width" class="mt-1 w-full bg-gray-800 rounded px-2 py-1 text-sm border border-gray-700" oninput="syncInput('left_eye_width_slider', this.value)">
+                    </label>
+                    <label class="control-group">
+                        <span class="text-xs text-gray-400">Height</span>
+                        <input type="range" min="0" max="64" id="left_eye_height_slider" class="w-full block h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer" oninput="syncInput('left_eye_height', this.value)">
+                        <input type="number" id="left_eye_height" class="mt-1 w-full bg-gray-800 rounded px-2 py-1 text-sm border border-gray-700" oninput="syncInput('left_eye_height_slider', this.value)">
+                    </label>
+                </div>
+            </div>
+
+            <!-- Right Eye -->
+            <div class="space-y-3">
+                <h3 class="text-cyan-500 text-xs uppercase tracking-wider font-bold border-b border-gray-700 pb-1">Right Eye</h3>
+                <div class="grid grid-cols-2 gap-4">
+                    <label class="control-group">
+                        <span class="text-xs text-gray-400">X Position</span>
+                        <input type="number" id="right_eye_x_position" class="w-full bg-gray-800 rounded px-2 py-1 text-sm border border-gray-700" oninput="updateState()">
+                    </label>
+                    <label class="control-group">
+                        <span class="text-xs text-gray-400">Y Position</span>
+                        <input type="number" id="right_eye_y_position" class="w-full bg-gray-800 rounded px-2 py-1 text-sm border border-gray-700" oninput="updateState()">
+                    </label>
+                    <label class="control-group">
+                        <span class="text-xs text-gray-400">Width</span>
+                        <input type="range" min="0" max="128" id="right_eye_width_slider" class="w-full block h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer" oninput="syncInput('right_eye_width', this.value)">
+                        <input type="number" id="right_eye_width" class="mt-1 w-full bg-gray-800 rounded px-2 py-1 text-sm border border-gray-700" oninput="syncInput('right_eye_width_slider', this.value)">
+                    </label>
+                    <label class="control-group">
+                        <span class="text-xs text-gray-400">Height</span>
+                        <input type="range" min="0" max="64" id="right_eye_height_slider" class="w-full block h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer" oninput="syncInput('right_eye_height', this.value)">
+                        <input type="number" id="right_eye_height" class="mt-1 w-full bg-gray-800 rounded px-2 py-1 text-sm border border-gray-700" oninput="syncInput('right_eye_height_slider', this.value)">
+                    </label>
+                </div>
+            </div>
+
+            <!-- Mouth -->
+            <div class="space-y-3">
+                <h3 class="text-cyan-500 text-xs uppercase tracking-wider font-bold border-b border-gray-700 pb-1">Mouth</h3>
+                <div class="grid grid-cols-2 gap-4">
+                    <label class="control-group">
+                        <span class="text-xs text-gray-400">Center X</span>
+                        <input type="range" min="0" max="128" id="mouth_angle_x_position_slider" class="w-full block h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer" oninput="syncInput('mouth_angle_x_position', this.value)">
+                        <input type="number" id="mouth_angle_x_position" class="mt-1 w-full bg-gray-800 rounded px-2 py-1 text-sm border border-gray-700" oninput="syncInput('mouth_angle_x_position_slider', this.value)">
+                    </label>
+                    <label class="control-group">
+                        <span class="text-xs text-gray-400">Center Y</span>
+                        <input type="range" min="0" max="64" id="mouth_angle_y_position_slider" class="w-full block h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer" oninput="syncInput('mouth_angle_y_position', this.value)">
+                        <input type="number" id="mouth_angle_y_position" class="mt-1 w-full bg-gray-800 rounded px-2 py-1 text-sm border border-gray-700" oninput="syncInput('mouth_angle_y_position_slider', this.value)">
+                    </label>
+                    <label class="control-group">
+                        <span class="text-xs text-gray-400">Start Angle (Deg)</span>
+                        <input type="range" min="0" max="360" id="mouth_angle_start_slider" class="w-full block h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer" oninput="syncInput('mouth_angle_start', this.value)">
+                        <input type="number" id="mouth_angle_start" class="mt-1 w-full bg-gray-800 rounded px-2 py-1 text-sm border border-gray-700" oninput="syncInput('mouth_angle_start_slider', this.value)">
+                    </label>
+                    <label class="control-group">
+                        <span class="text-xs text-gray-400">End Angle (Deg)</span>
+                        <input type="range" min="0" max="360" id="mouth_angle_end_slider" class="w-full block h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer" oninput="syncInput('mouth_angle_end', this.value)">
+                        <input type="number" id="mouth_angle_end" class="mt-1 w-full bg-gray-800 rounded px-2 py-1 text-sm border border-gray-700" oninput="syncInput('mouth_angle_end_slider', this.value)">
+                    </label>
+                    <label class="control-group col-span-2">
+                        <span class="text-xs text-gray-400">Mouth Width (Thickness)</span>
+                        <input type="range" min="1" max="20" id="mouth_width_slider" class="w-full block h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer" oninput="syncInput('mouth_width', this.value)">
+                        <input type="number" id="mouth_width" class="mt-1 w-full bg-gray-800 rounded px-2 py-1 text-sm border border-gray-700" oninput="syncInput('mouth_width_slider', this.value)">
+                    </label>
+                </div>
+            </div>
+
+            <!-- Decorations -->
+            <div class="space-y-3">
+                <h3 class="text-cyan-500 text-xs uppercase tracking-wider font-bold border-b border-gray-700 pb-1">Decorations (Cheeks)</h3>
+                
+                <div class="bg-gray-800 p-2 rounded mb-2">
+                    <label class="flex items-center space-x-2 cursor-pointer">
+                        <input type="checkbox" id="use_dynamic_decoration" checked onchange="updateState()" class="form-checkbox text-cyan-500 rounded bg-gray-700 border-gray-600">
+                        <span class="text-xs text-gray-300">Calculate size from Width (W/3)</span>
+                    </label>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <label class="control-group col-span-2">
+                        <span class="text-xs text-gray-400">Base Width</span>
+                        <input type="range" min="3" max="50" id="decoration_width_slider" class="w-full block h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer" oninput="syncInput('decoration_width', this.value)">
+                        <input type="number" id="decoration_width" class="mt-1 w-full bg-gray-800 rounded px-2 py-1 text-sm border border-gray-700" oninput="syncInput('decoration_width_slider', this.value)">
+                    </label>
+                    
+                    <label class="control-group">
+                        <span class="text-xs text-gray-400">Left X</span>
+                        <input type="number" id="decoration_left_x_position" class="w-full bg-gray-800 rounded px-2 py-1 text-sm border border-gray-700" oninput="updateState()">
+                    </label>
+                    <label class="control-group">
+                        <span class="text-xs text-gray-400">Left Y</span>
+                        <input type="number" id="decoration_left_y_position" class="w-full bg-gray-800 rounded px-2 py-1 text-sm border border-gray-700" oninput="updateState()">
+                    </label>
+                    
+                    <label class="control-group">
+                        <span class="text-xs text-gray-400">Right X</span>
+                        <input type="number" id="decoration_right_x_position" class="w-full bg-gray-800 rounded px-2 py-1 text-sm border border-gray-700" oninput="updateState()">
+                    </label>
+                    <label class="control-group">
+                        <span class="text-xs text-gray-400">Right Y</span>
+                        <input type="number" id="decoration_right_y_position" class="w-full bg-gray-800 rounded px-2 py-1 text-sm border border-gray-700" oninput="updateState()">
+                    </label>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // Constants matching C definition
+        const SSD1306_WIDTH = 128;
+        const SSD1306_HEIGHT = 64;
+
+        // Current State Object
+        let state = {
+            left_eye_x_position: 10,
+            left_eye_y_position: 5,
+            left_eye_width: 25,
+            left_eye_height: 40,
+
+            right_eye_x_position: SSD1306_WIDTH - 10 - 25,
+            right_eye_y_position: 5,
+            right_eye_width: 25,
+            right_eye_height: 40,
+
+            mouth_angle_start: 60,
+            mouth_angle_end: 120,
+            mouth_angle_x_position: 64,
+            mouth_angle_y_position: 32,
+            mouth_width: 6,
+
+            decoration_width: 15,
+            decoration_left_x_position: 10,
+            decoration_left_y_position: 55,
+
+            decoration_right_x_position: SSD1306_WIDTH - 10 - 10,
+            decoration_right_y_position: 55
+        };
+
+        const canvas = document.getElementById('oled-canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        
+        // Offscreen canvas for 1-bit simulation
+        const offscreenCanvas = document.createElement('canvas');
+        offscreenCanvas.width = 128;
+        offscreenCanvas.height = 64;
+        const offCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+
+        // --- Interaction State ---
+        let selectedElement = null; 
+        let isDragging = false;
+        let dragMode = 'move'; 
+        let dragStartMouse = { x: 0, y: 0 };
+        let dragStartSnapshot = {}; 
+
+        // --- Helpers for Input Sync ---
+        function syncInput(id, value) {
+            const isSlider = id.includes('slider');
+            const targetId = isSlider ? id.replace('_slider', '') : id + '_slider';
+            const stateKey = isSlider ? id.replace('_slider', '') : id;
+            
+            state[stateKey] = parseInt(value, 10);
+
+            const targetEl = document.getElementById(targetId);
+            const sourceEl = document.getElementById(id);
+            if(targetEl) targetEl.value = value;
+            if(sourceEl) sourceEl.value = value;
+
+            updateState(false);
+        }
+
+        // Initialize UI with current state values
+        function loadUI() {
+            // Update all inputs from state object
+            for (const key in state) {
+                const el = document.getElementById(key);
+                if (el) el.value = state[key];
+                
+                const slider = document.getElementById(key + '_slider');
+                if (slider) slider.value = state[key];
+            }
+            render();
+            generateCode();
+        }
+
+        function updateState(reloadUI = true) {
+            if (reloadUI) {
+                for (const key in state) {
+                    const el = document.getElementById(key);
+                    if (el) state[key] = parseInt(el.value, 10);
+                }
+            }
+            render();
+            generateCode();
+        }
+
+        // --- Geometry Helpers ---
+        function getRect(id) {
+            if (id === 'left_eye') {
+                return { x: state.left_eye_x_position, y: state.left_eye_y_position, w: state.left_eye_width, h: state.left_eye_height };
+            }
+            if (id === 'right_eye') {
+                return { x: state.right_eye_x_position, y: state.right_eye_y_position, w: state.right_eye_width, h: state.right_eye_height };
+            }
+            if (id === 'mouth') {
+                // Mouth is an arc, but we can return a bounding box for hit testing the center area
+                return { x: state.mouth_angle_x_position - 12, y: state.mouth_angle_y_position - 12, w: 24, h: 24, type: 'arc' };
+            }
+            if (id === 'dec_left') {
+                // Approximate bounding box
+                return { x: state.decoration_left_x_position, y: state.decoration_left_y_position, w: 20, h: 5 }; // Height is small
+            }
+            if (id === 'dec_right') {
+                return { x: state.decoration_right_x_position - 20, y: state.decoration_right_y_position, w: 20, h: 5 };
+            }
+            return null;
+        }
+
+        function hitTest(x, y) {
+            // Check Resize Handles first if something is selected
+            if (selectedElement) {
+                const r = getRect(selectedElement);
+                if (r && r.type !== 'arc') {
+                    const handleSize = 3; 
+                    // Corners
+                    if (checkHit(x, y, r.x, r.y, handleSize)) return { id: selectedElement, mode: 'resize-nw' };
+                    if (checkHit(x, y, r.x + r.w, r.y, handleSize)) return { id: selectedElement, mode: 'resize-ne' };
+                    if (checkHit(x, y, r.x, r.y + r.h, handleSize)) return { id: selectedElement, mode: 'resize-sw' };
+                    if (checkHit(x, y, r.x + r.w, r.y + r.h, handleSize)) return { id: selectedElement, mode: 'resize-se' };
+                }
+            }
+
+            // Check Bodies
+            const ids = ['left_eye', 'right_eye', 'mouth', 'dec_left', 'dec_right'];
+            for (let id of ids) {
+                const r = getRect(id);
+                if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
+                    return { id: id, mode: 'move' };
+                }
+            }
+            return null;
+        }
+
+        function checkHit(mx, my, x, y, size) {
+            // relaxed hit test for handles
+            return (mx >= x - size && mx <= x + size && my >= y - size && my <= y + size);
+        }
+
+        // --- Mouse Events ---
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            // Map CSS pixels to Canvas pixels (128x64)
+            const mx = (e.clientX - rect.left) / (rect.width / SSD1306_WIDTH);
+            const my = (e.clientY - rect.top) / (rect.height / SSD1306_HEIGHT);
+
+            const hit = hitTest(mx, my);
+            if (hit) {
+                selectedElement = hit.id;
+                isDragging = true;
+                dragMode = hit.mode;
+                dragStartMouse = { x: mx, y: my };
+                dragStartSnapshot = { ...state }; // Clone state
+                render();
+            } else {
+                selectedElement = null;
+                render();
+            }
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging || !selectedElement) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const mx = (e.clientX - rect.left) / (rect.width / SSD1306_WIDTH);
+            const my = (e.clientY - rect.top) / (rect.height / SSD1306_HEIGHT);
+
+            const dx = Math.round(mx - dragStartMouse.x);
+            const dy = Math.round(my - dragStartMouse.y);
+
+            // Apply changes based on selection and mode
+            if (dragMode === 'move') {
+                if (selectedElement === 'left_eye') {
+                    state.left_eye_x_position = dragStartSnapshot.left_eye_x_position + dx;
+                    state.left_eye_y_position = dragStartSnapshot.left_eye_y_position + dy;
+                } else if (selectedElement === 'right_eye') {
+                    state.right_eye_x_position = dragStartSnapshot.right_eye_x_position + dx;
+                    state.right_eye_y_position = dragStartSnapshot.right_eye_y_position + dy;
+                } else if (selectedElement === 'mouth') {
+                    state.mouth_angle_x_position = dragStartSnapshot.mouth_angle_x_position + dx;
+                    state.mouth_angle_y_position = dragStartSnapshot.mouth_angle_y_position + dy;
+                } else if (selectedElement === 'dec_left') {
+                    state.decoration_left_x_position = dragStartSnapshot.decoration_left_x_position + dx;
+                    state.decoration_left_y_position = dragStartSnapshot.decoration_left_y_position + dy;
+                } else if (selectedElement === 'dec_right') {
+                    state.decoration_right_x_position = dragStartSnapshot.decoration_right_x_position + dx;
+                    state.decoration_right_y_position = dragStartSnapshot.decoration_right_y_position + dy;
+                }
+            } else if (dragMode.startsWith('resize')) {
+                // Resizing Logic (Only for Eyes currently supported nicely)
+                let prefix = '';
+                if (selectedElement === 'left_eye') prefix = 'left_eye_';
+                if (selectedElement === 'right_eye') prefix = 'right_eye_';
+
+                if (prefix) {
+                    if (dragMode === 'resize-se') {
+                        state[prefix + 'width'] = Math.max(1, dragStartSnapshot[prefix + 'width'] + dx);
+                        state[prefix + 'height'] = Math.max(1, dragStartSnapshot[prefix + 'height'] + dy);
+                    } else if (dragMode === 'resize-sw') {
+                        // Change X and Width
+                        const newW = Math.max(1, dragStartSnapshot[prefix + 'width'] - dx);
+                        state[prefix + 'width'] = newW;
+                        state[prefix + 'x_position'] = dragStartSnapshot[prefix + 'x_position'] + dx;
+                        state[prefix + 'height'] = Math.max(1, dragStartSnapshot[prefix + 'height'] + dy);
+                    } else if (dragMode === 'resize-ne') {
+                         const newH = Math.max(1, dragStartSnapshot[prefix + 'height'] - dy);
+                        state[prefix + 'height'] = newH;
+                        state[prefix + 'y_position'] = dragStartSnapshot[prefix + 'y_position'] + dy;
+                        state[prefix + 'width'] = Math.max(1, dragStartSnapshot[prefix + 'width'] + dx);
+                    } else if (dragMode === 'resize-nw') {
+                         const newW = Math.max(1, dragStartSnapshot[prefix + 'width'] - dx);
+                         const newH = Math.max(1, dragStartSnapshot[prefix + 'height'] - dy);
+                        state[prefix + 'width'] = newW;
+                        state[prefix + 'x_position'] = dragStartSnapshot[prefix + 'x_position'] + dx;
+                        state[prefix + 'height'] = newH;
+                        state[prefix + 'y_position'] = dragStartSnapshot[prefix + 'y_position'] + dy;
+                    }
+                }
+            }
+
+            // Sync back to UI inputs without full reload
+            loadUI(); 
+        });
+
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        // --- Rendering Logic ---
+
+        function ssd1306_fill_round_rect(targetCtx, x, y, w, h, r) {
+            targetCtx.beginPath();
+            targetCtx.roundRect(x, y, w, h, r);
+            targetCtx.fill();
+        }
+
+        function ssd1306_draw_arc(targetCtx, x, y, radius, start_angle, end_angle, width) {
+            const startRad = (start_angle * Math.PI) / 180;
+            const endRad = (end_angle * Math.PI) / 180;
+            targetCtx.beginPath();
+            targetCtx.arc(x, y, radius, startRad, endRad);
+            targetCtx.lineWidth = width;
+            targetCtx.stroke();
+        }
+
+        function render_eyes(targetCtx) {
+            // Render shapes in WHITE for the threshold mask
+            ssd1306_fill_round_rect(targetCtx, state.left_eye_x_position, state.left_eye_y_position, state.left_eye_width, state.left_eye_height, 8);
+            ssd1306_fill_round_rect(targetCtx, state.right_eye_x_position, state.right_eye_y_position, state.right_eye_width, state.right_eye_height, 8);
+        }
+
+        function render_mouth(targetCtx) {
+            ssd1306_draw_arc(targetCtx, state.mouth_angle_x_position, state.mouth_angle_y_position, 25, state.mouth_angle_start, state.mouth_angle_end, state.mouth_width);
+        }
+
+        function render_decorations(targetCtx) {
+            let decoration_small, decoration_big;
+            
+            if (document.getElementById('use_dynamic_decoration').checked) {
+                decoration_small = Math.floor(state.decoration_width / 3);
+                decoration_big = decoration_small * 2;
+            } else {
+                decoration_small = 5;
+                decoration_big = 10;
+            }
+
+            // Left
+            targetCtx.fillRect(state.decoration_left_x_position, state.decoration_left_y_position, decoration_big, 2);
+            targetCtx.fillRect(state.decoration_left_x_position + decoration_big + 3, state.decoration_left_y_position, decoration_small, 2);
+
+            // Right
+            targetCtx.fillRect(state.decoration_right_x_position, state.decoration_right_y_position, decoration_big, 2);
+            targetCtx.fillRect(state.decoration_right_x_position - decoration_big + 2, state.decoration_right_y_position, decoration_small, 2);
+        }
+
+        function drawControls() {
+            if (!selectedElement) return;
+
+            const r = getRect(selectedElement);
+            if (!r) return;
+
+            ctx.save();
+            ctx.strokeStyle = "white";
+            ctx.lineWidth = 1;
+            ctx.setLineDash([2, 2]);
+
+            // Draw bounding box
+            if (r.type === 'arc') {
+                ctx.beginPath();
+                ctx.arc(state.mouth_angle_x_position, state.mouth_angle_y_position, 25, 0, Math.PI * 2);
+                ctx.stroke();
+                
+                // Draw Center point
+                ctx.fillStyle = "red";
+                ctx.fillRect(r.x + 10, r.y + 10, 4, 4);
+            } else {
+                ctx.strokeRect(r.x - 1, r.y - 1, r.w + 2, r.h + 2);
+                
+                // Draw Resize Handles (Corners)
+                ctx.fillStyle = "white";
+                const sz = 3;
+                // TL
+                ctx.fillRect(r.x - sz, r.y - sz, sz*2, sz*2);
+                // TR
+                ctx.fillRect(r.x + r.w - sz, r.y - sz, sz*2, sz*2);
+                // BL
+                ctx.fillRect(r.x - sz, r.y + r.h - sz, sz*2, sz*2);
+                // BR
+                ctx.fillRect(r.x + r.w - sz, r.y + r.h - sz, sz*2, sz*2);
+            }
+
+            ctx.restore();
+        }
+
+        function render() {
+            // 1. Clear offscreen canvas
+            offCtx.fillStyle = "black";
+            offCtx.fillRect(0, 0, SSD1306_WIDTH, SSD1306_HEIGHT);
+
+            // 2. Render face parts in pure White on the offscreen canvas
+            offCtx.fillStyle = "white";
+            offCtx.strokeStyle = "white";
+            
+            render_eyes(offCtx);
+            render_mouth(offCtx);
+            render_decorations(offCtx);
+
+            // 3. Get Pixel Data (includes anti-aliased gray pixels)
+            const imageData = offCtx.getImageData(0, 0, SSD1306_WIDTH, SSD1306_HEIGHT);
+            const data = imageData.data;
+
+            // 4. Thresholding Loop: Convert anything not Black to Cyan
+            for (let i = 0; i < data.length; i += 4) {
+                // If pixel has brightness (average of RGB) > 100 (arbitrary threshold)
+                // We use red channel since we drew white (255,255,255)
+                if (data[i] > 100) {
+                    // Set to Cyan (#06b6d4 -> R6, G182, B212)
+                    data[i] = 6;     // R
+                    data[i+1] = 182; // G
+                    data[i+2] = 212; // B
+                    data[i+3] = 255; // Alpha (Full)
+                } else {
+                    // Set to Black
+                    data[i] = 0;
+                    data[i+1] = 0;
+                    data[i+2] = 0;
+                    data[i+3] = 255;
+                }
+            }
+
+            // 5. Put hard pixels onto the main visible canvas
+            ctx.putImageData(imageData, 0, 0);
+            
+            // 6. Draw UI controls on top (kept sharp/standard for usability)
+            drawControls();
+        }
+
+        // --- Code Generation ---
+        function generateCode() {
+            const name = "IDLE_CUSTOM_STATE";
+            const code = `add_state(state_machine, create_state("${name}", create_face_state((face_state_t) {
+    .left_eye_x_position = ${state.left_eye_x_position},
+    .left_eye_y_position = ${state.left_eye_y_position},
+    .left_eye_width = ${state.left_eye_width},
+    .left_eye_height = ${state.left_eye_height},
+
+    .right_eye_x_position = ${state.right_eye_x_position}, 
+    .right_eye_y_position = ${state.right_eye_y_position},
+    .right_eye_width = ${state.right_eye_width},
+    .right_eye_height = ${state.right_eye_height},
+
+    .mouth_angle_start = ${state.mouth_angle_start},
+    .mouth_angle_end = ${state.mouth_angle_end},
+    .mouth_angle_x_position = ${state.mouth_angle_x_position},
+    .mouth_angle_y_position = ${state.mouth_angle_y_position},
+    .mouth_width = ${state.mouth_width},
+
+    .decoration_width = ${state.decoration_width},
+    .decoration_left_x_position = ${state.decoration_left_x_position},
+    .decoration_left_y_position = ${state.decoration_left_y_position},
+
+    .decoration_right_x_position = ${state.decoration_right_x_position},
+    .decoration_right_y_position = ${state.decoration_right_y_position}
+})));`;
+            document.getElementById('code-output').value = code;
+        }
+
+        function copyCode() {
+            const code = document.getElementById('code-output');
+            code.select();
+            document.execCommand('copy');
+            alert("Code copied to clipboard!");
+        }
+
+        function resetToDefault() {
+            state = {
+                left_eye_x_position: 10,
+                left_eye_y_position: 5,
+                left_eye_width: 25,
+                left_eye_height: 40,
+
+                right_eye_x_position: SSD1306_WIDTH - 10 - 25,
+                right_eye_y_position: 5,
+                right_eye_width: 25,
+                right_eye_height: 40,
+
+                mouth_angle_start: 60,
+                mouth_angle_end: 120,
+                mouth_angle_x_position: 64,
+                mouth_angle_y_position: 32,
+                mouth_width: 6,
+
+                decoration_width: 15,
+                decoration_left_x_position: 10,
+                decoration_left_y_position: 55,
+
+                decoration_right_x_position: SSD1306_WIDTH - 10 - 10,
+                decoration_right_y_position: 55
+            };
+            loadUI();
+        }
+
+        // Init
+        loadUI();
+    </script>
+</body>
+</html>

@@ -1,6 +1,12 @@
 #ifndef UTILS_H
 #define UTILS_H
 
+#include "math.h"
+
+float clamp(float min, float max, float value) {
+    return fmin(fmax(value, min), max);
+}
+
 void i2c_scan_test() {
     while (1)
     {

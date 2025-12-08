@@ -3,6 +3,11 @@
 
 #include "engine/state_machine.h"
 
+#include "components/ssd1306.h"
+
+#include "face_state.h"
+#include "shared.h"
+
 typedef enum {
     TOUCH_TAP,
     TOUCH_DOUBLE_TAP,
@@ -19,7 +24,7 @@ typedef struct {
     } as;
 } event_t;
 
-event_t create_touch_event(event_type_t type, int multi_tap) {
+event_t* create_touch_event(event_type_t type, int multi_tap) {
     event_t* event = malloc(sizeof(event_t));
     event->type = type;
     event->as.multi_tap = multi_tap;
@@ -49,6 +54,31 @@ void add_all_states(state_machine_t* state_machine) {
         .decoration_left_y_position = 55,
 
         .decoration_right_x_position = SSD1306_WIDTH - 10 - 10,
+        .decoration_right_y_position = 55
+    })));
+
+    add_state(state_machine, create_state("IDLE_CLOSED_EYES_STATE", create_face_state((face_state_t) {
+        .left_eye_x_position = 10,
+        .left_eye_y_position = 25,
+        .left_eye_width = 25,
+        .left_eye_height = 3,
+
+        .right_eye_x_position = 93, 
+        .right_eye_y_position = 25,
+        .right_eye_width = 25,
+        .right_eye_height = 3,
+
+        .mouth_angle_start = 60,
+        .mouth_angle_end = 120,
+        .mouth_angle_x_position = 64,
+        .mouth_angle_y_position = 32,
+        .mouth_width = 6,
+
+        .decoration_width = 15,
+        .decoration_left_x_position = 10,
+        .decoration_left_y_position = 55,
+
+        .decoration_right_x_position = 108,
         .decoration_right_y_position = 55
     })));
 

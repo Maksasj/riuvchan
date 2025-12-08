@@ -2,6 +2,7 @@
 #define STATE_MACHINE_H
 
 #include <string.h>
+#include <math.h>
 
 #include "emotion_state.h"
 

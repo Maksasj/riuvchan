@@ -1,6 +1,8 @@
 #ifndef FACE_STATE_H
 #define FACE_STATE_H
 
+#include "easings.h"
+
 typedef struct face_state_t {
     uint8_t left_eye_x_position;
     uint8_t left_eye_y_position;
@@ -26,7 +28,6 @@ typedef struct face_state_t {
     uint8_t decoration_right_y_position;
 } face_state_t;
 
-face_state_t* create_face_state(face_state_t state);
 face_state_t calculate_face_state(face_state_t* current_face_state, face_state_t* previous_face_state, float transition);
 
 face_state_t* create_face_state(face_state_t state) {
